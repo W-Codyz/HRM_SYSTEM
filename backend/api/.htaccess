@@ -1,0 +1,69 @@
+RewriteEngine On
+RewriteBase /Nhom9/backend/api/
+
+# Auth endpoints
+RewriteRule ^auth/login$ auth.php [L]
+RewriteRule ^auth/register$ auth.php [L]
+RewriteRule ^auth/change-password$ auth.php [L]
+
+# Users endpoints
+RewriteRule ^users$ users.php [L]
+RewriteRule ^users/(\d+)$ users.php [L]
+RewriteRule ^users/(\d+)/approve$ users.php [L]
+RewriteRule ^users/(\d+)/reject$ users.php [L]
+RewriteRule ^users/pending$ users.php [L]
+
+# Employees endpoints
+RewriteRule ^employees$ employees.php [L]
+RewriteRule ^employees/(\d+)$ employees.php [L]
+
+# Departments endpoints
+RewriteRule ^departments$ departments.php [L]
+RewriteRule ^departments/(\d+)$ departments.php [L]
+
+# Positions endpoints
+RewriteRule ^positions$ positions.php [L]
+RewriteRule ^positions/(\d+)$ positions.php [L]
+
+# Attendance endpoints
+RewriteRule ^attendance$ attendance.php [L]
+RewriteRule ^attendance/(\d+)$ attendance.php [L]
+RewriteRule ^attendance/checkin$ attendance.php [L]
+RewriteRule ^attendance/checkout$ attendance.php [L]
+
+# Leave requests endpoints
+RewriteRule ^leave_requests$ leave_requests.php [L]
+RewriteRule ^leave_requests/(\d+)$ leave_requests.php [L]
+RewriteRule ^leave_requests/(\d+)/approve$ leave_requests.php [L]
+RewriteRule ^leave_requests/(\d+)/reject$ leave_requests.php [L]
+RewriteRule ^leave_requests/(\d+)/cancel$ leave_requests.php [L]
+
+# Payroll endpoints
+RewriteRule ^payroll$ payroll.php [L]
+RewriteRule ^payroll/(\d+)$ payroll.php [L]
+RewriteRule ^payroll/calculate$ payroll.php [L]
+RewriteRule ^payroll/(\d+)/approve$ payroll.php [L]
+RewriteRule ^payroll/(\d+)/pay$ payroll.php [L]
+
+# Dashboard endpoints
+RewriteRule ^dashboard/stats$ dashboard.php [L]
+RewriteRule ^dashboard/attendance-trends$ dashboard.php [L]
+RewriteRule ^dashboard/employees-by-department$ dashboard.php [L]
+RewriteRule ^dashboard/gender-distribution$ dashboard.php [L]
+RewriteRule ^dashboard/recent-activities$ dashboard.php [L]
+RewriteRule ^dashboard/pending-approvals$ dashboard.php [L]
+
+# Notifications endpoints
+RewriteRule ^notifications$ notifications.php [L]
+RewriteRule ^notifications/unread-count$ notifications.php [L]
+RewriteRule ^notifications/(\d+)/read$ notifications.php [L]
+RewriteRule ^notifications/mark-all-read$ notifications.php [L]
+
+# Face Recognition endpoints
+RewriteRule ^face-recognition/health$ face_recognition.php [L]
+RewriteRule ^face-recognition/employee/([A-Z0-9]+)/has-photo$ face_recognition.php [L]
+RewriteRule ^face-recognition/upload-photo$ face_recognition.php [L]
+RewriteRule ^face-recognition/verify-photo$ face_recognition.php [L]
+RewriteRule ^face-recognition/recognize$ face_recognition.php [L]
+RewriteRule ^face-recognition/attendance-check$ face_recognition.php [L]
+RewriteRule ^face-recognition/stats$ face_recognition.php [L]

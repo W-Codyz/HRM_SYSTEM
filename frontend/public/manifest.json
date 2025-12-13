@@ -1,0 +1,9 @@
+{
+  "name": "hrm-system",
+  "short_name": "HRM",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0ea5e9",
+  "background_color": "#ffffff",
+  "description": "Hệ thống Quản lý Nhân sự"
+}
