@@ -32,6 +32,9 @@ class Database:
     
     def execute_query(self, query, params=None):
         """Execute a query (INSERT, UPDATE, DELETE)"""
+        if not self.connection or not self.connection.is_connected():
+            print("Database connection is not established")
+            return None
         try:
             cursor = self.connection.cursor()
             cursor.execute(query, params or ())
@@ -44,6 +47,9 @@ class Database:
     
     def fetch_one(self, query, params=None):
         """Fetch single record"""
+        if not self.connection or not self.connection.is_connected():
+            print("Database connection is not established")
+            return None
         try:
             cursor = self.connection.cursor(dictionary=True)
             cursor.execute(query, params or ())
@@ -55,6 +61,9 @@ class Database:
     
     def fetch_all(self, query, params=None):
         """Fetch multiple records"""
+        if not self.connection or not self.connection.is_connected():
+            print("Database connection is not established")
+            return []
         try:
             cursor = self.connection.cursor(dictionary=True)
             cursor.execute(query, params or ())

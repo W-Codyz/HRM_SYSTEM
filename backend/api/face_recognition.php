@@ -131,14 +131,20 @@ if ($method === 'POST' && strpos($uri, '/face-recognition/upload-photo') !== fal
     // Get employee code from request or use current user's employee
     $employeeCode = $_POST['employee_code'] ?? null;
     
+    // Debug logging
+    error_log("Upload photo - User ID: " . $user['user_id']);
+    error_log("Upload photo - Employee code from POST: " . ($employeeCode ?? 'null'));
+    
     if (!$employeeCode) {
         // Get from current user
         $stmt = $db->prepare("SELECT employee_code FROM employees WHERE user_id = ?");
         $stmt->execute([$user['user_id']]);
         $employee = $stmt->fetch(PDO::FETCH_ASSOC); // Fetch as array
         
+        error_log("Upload photo - Employee found: " . ($employee ? 'yes' : 'no'));
+        
         if (!$employee) {
-            Response::error('Không tìm thấy thông tin nhân viên', 404);
+            Response::error('Không tìm thấy thông tin nhân viên. Vui lòng liên hệ admin để tạo hồ sơ nhân viên.', 404);
         }
         
         $employeeCode = $employee['employee_code'];

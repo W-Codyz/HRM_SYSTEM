@@ -10,10 +10,12 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../helpers/Response.php';
 require_once __DIR__ . '/../helpers/Validator.php';
+require_once __DIR__ . '/../helpers/NotificationHelper.php';
 require_once __DIR__ . '/../middleware/auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$notificationHelper = new NotificationHelper($db);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = $_SERVER['REQUEST_URI'];
@@ -27,17 +29,28 @@ if ($method === 'GET' && !preg_match('/\/attendance\/\d+/', $uri)) {
         SELECT a.*, 
                e.employee_code, e.full_name,
                d.department_name,
+               p.position_name,
                s.shift_name
         FROM attendance a
         INNER JOIN employees e ON a.employee_id = e.employee_id
         LEFT JOIN departments d ON e.department_id = d.department_id
+        LEFT JOIN positions p ON e.position_id = p.position_id
         LEFT JOIN work_shifts s ON a.shift_id = s.shift_id
         WHERE 1=1
     ";
     
     $params = [];
     
-    if ($user['role'] !== 'admin') {
+    // Role-based filtering
+    // Admin: sees all attendance
+    // Manager: sees team attendance when department_id or date filter is present
+    // Employee: only sees their own attendance
+    if ($user['role'] === 'employee') {
+        // Employees always see only their own attendance
+        $query .= " AND a.employee_id = ?";
+        $params[] = $user['employee_id'];
+    } elseif ($user['role'] === 'manager' && !isset($_GET['department_id']) && !isset($_GET['date'])) {
+        // Managers without department/date filter see only their own attendance
         $query .= " AND a.employee_id = ?";
         $params[] = $user['employee_id'];
     }
@@ -91,10 +104,12 @@ if ($method === 'GET' && preg_match('/\/attendance\/(\d+)/', $uri, $matches)) {
         SELECT a.*, 
                e.employee_code, e.full_name,
                d.department_name,
+               p.position_name,
                s.shift_name, s.start_time, s.end_time
         FROM attendance a
         INNER JOIN employees e ON a.employee_id = e.employee_id
         LEFT JOIN departments d ON e.department_id = d.department_id
+        LEFT JOIN positions p ON e.position_id = p.position_id
         LEFT JOIN work_shifts s ON a.shift_id = s.shift_id
         WHERE a.attendance_id = ?
     ");
@@ -112,11 +127,11 @@ if ($method === 'GET' && preg_match('/\/attendance\/(\d+)/', $uri, $matches)) {
 if ($method === 'POST' && strpos($uri, '/checkin') !== false) {
     $user = AuthMiddleware::authenticate();
     
-    $employeeId = $data['employee_id'] ?? $user->employee_id;
+    $employeeId = $data['employee_id'] ?? $user['employee_id'];
     $date = $data['date'] ?? date('Y-m-d');
     $time = $data['time'] ?? date('H:i:s');
     $shiftId = $data['shift_id'] ?? 1;
-    $isManual = isset($data['employee_id']) && ($user->role === 'admin' || $user->role === 'manager');
+    $isManual = isset($data['employee_id']) && ($user['role'] === 'admin' || $user['role'] === 'manager');
     
     
     $stmt = $db->prepare("
@@ -180,7 +195,7 @@ if ($method === 'POST' && strpos($uri, '/checkin') !== false) {
 if ($method === 'POST' && strpos($uri, '/checkout') !== false) {
     $user = AuthMiddleware::authenticate();
     
-    $employeeId = $data['employee_id'] ?? $user->employee_id;
+    $employeeId = $data['employee_id'] ?? $user['employee_id'];
     $date = $data['date'] ?? date('Y-m-d');
     $time = $data['time'] ?? date('H:i:s');
     $shiftId = $data['shift_id'] ?? 1;
@@ -271,6 +286,20 @@ if ($method === 'PUT' && preg_match('/\/attendance\/(\d+)/', $uri, $matches)) {
     $attendanceId = $matches[1];
     
     try {
+        // Get old attendance data and employee info for notification
+        $stmt = $db->prepare("
+            SELECT a.*, e.user_id as employee_user_id, e.full_name as employee_name
+            FROM attendance a
+            JOIN employees e ON a.employee_id = e.employee_id
+            WHERE a.attendance_id = ?
+        ");
+        $stmt->execute([$attendanceId]);
+        $oldAttendance = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$oldAttendance) {
+            Response::notFound('Attendance record not found');
+        }
+        
         $stmt = $db->prepare("
             UPDATE attendance SET
                 check_in = ?,
@@ -295,6 +324,17 @@ if ($method === 'PUT' && preg_match('/\/attendance\/(\d+)/', $uri, $matches)) {
             $data['notes'] ?? null,
             $attendanceId
         ]);
+        
+        // Send notification to employee about attendance edit
+        if ($oldAttendance['employee_user_id'] && $oldAttendance['employee_user_id'] != $user['user_id']) {
+            $editorName = $user['role'] === 'admin' ? 'Quản trị viên' : 'Quản lý';
+            $notificationHelper->notifyAttendanceEdited(
+                $oldAttendance['employee_user_id'],
+                $oldAttendance['employee_name'],
+                $oldAttendance['attendance_date'],
+                $editorName
+            );
+        }
         
         Response::success(['attendance_id' => $attendanceId], 'Attendance updated successfully');
         

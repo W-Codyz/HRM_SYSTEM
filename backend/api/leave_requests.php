@@ -10,10 +10,12 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../helpers/Response.php';
 require_once __DIR__ . '/../helpers/Validator.php';
+require_once __DIR__ . '/../helpers/NotificationHelper.php';
 require_once __DIR__ . '/../middleware/auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$notificationHelper = new NotificationHelper($db);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = $_SERVER['REQUEST_URI'];
@@ -39,10 +41,24 @@ if ($method === 'GET' && !preg_match('/\/leave_requests\/\d+/', $uri)) {
     
     $params = [];
     
-    // Employees can only see their own requests
-    if ($user->role === 'employee') {
+    // Role-based filtering
+    // Admin: sees all leave requests
+    // Manager: sees department leave requests when department_id filter is present, otherwise only their own
+    // Employee: only sees their own requests
+    if ($user['role'] === 'employee') {
+        // Employees always see only their own requests
         $query .= " AND lr.employee_id = ?";
-        $params[] = $user->employee_id;
+        $params[] = $user['employee_id'];
+    } elseif ($user['role'] === 'manager' && !isset($_GET['department_id'])) {
+        // Managers without department filter see only their own requests
+        $query .= " AND lr.employee_id = ?";
+        $params[] = $user['employee_id'];
+    }
+    
+    // Filter by department (for managers viewing team requests)
+    if (isset($_GET['department_id'])) {
+        $query .= " AND e.department_id = ?";
+        $params[] = $_GET['department_id'];
     }
     
     // Filter by status
@@ -103,7 +119,7 @@ if ($method === 'GET' && preg_match('/\/leave_requests\/(\d+)/', $uri, $matches)
     }
     
     // Check permission
-    if ($user->role === 'employee' && $request['employee_id'] != $user->employee_id) {
+    if ($user['role'] === 'employee' && $request['employee_id'] != $user['employee_id']) {
         Response::forbidden('You can only view your own requests');
     }
     
@@ -114,7 +130,7 @@ if ($method === 'GET' && preg_match('/\/leave_requests\/(\d+)/', $uri, $matches)
 if ($method === 'POST' && !strpos($uri, '/approve') && !strpos($uri, '/reject')) {
     $user = AuthMiddleware::authenticate();
     
-    $employeeId = $data['employee_id'] ?? $user->employee_id;
+    $employeeId = $data['employee_id'] ?? $user['employee_id'];
     
     $errors = Validator::validate([
         'leave_type_id' => [
@@ -155,8 +171,44 @@ if ($method === 'POST' && !strpos($uri, '/approve') && !strpos($uri, '/reject'))
             $data['reason'] ?? null
         ]);
         
+        $leaveRequestId = $db->lastInsertId();
+        
+        // Get employee info and manager for notifications
+        $empStmt = $db->prepare("
+            SELECT e.full_name, e.user_id, e.department_id, lt.leave_name,
+                   d.manager_id, m.user_id as manager_user_id
+            FROM employees e
+            JOIN leave_types lt ON lt.leave_type_id = ?
+            LEFT JOIN departments d ON e.department_id = d.department_id
+            LEFT JOIN employees m ON d.manager_id = m.employee_id
+            WHERE e.employee_id = ?
+        ");
+        $empStmt->execute([$data['leave_type_id'], $employeeId]);
+        $empInfo = $empStmt->fetch();
+        
+        // Notify admins about new leave request
+        if ($empInfo) {
+            $notificationHelper->notifyNewLeaveRequest(
+                $empInfo['full_name'],
+                $empInfo['leave_name'],
+                $data['start_date'],
+                $data['end_date']
+            );
+            
+            // Also notify manager if employee has a manager
+            if ($empInfo['manager_user_id']) {
+                $notificationHelper->notifyManagerNewLeaveRequest(
+                    $empInfo['manager_user_id'],
+                    $empInfo['full_name'],
+                    $empInfo['leave_name'],
+                    $data['start_date'],
+                    $data['end_date']
+                );
+            }
+        }
+        
         Response::created([
-            'leave_request_id' => $db->lastInsertId()
+            'leave_request_id' => $leaveRequestId
         ], 'Leave request submitted successfully');
         
     } catch (PDOException $e) {
@@ -183,7 +235,7 @@ if ($method === 'PUT' && preg_match('/\/leave_requests\/(\d+)\/approve/', $uri, 
         ");
         
         $stmt->execute([
-            $user->user_id,
+            $user['user_id'],
             $data['review_notes'] ?? 'Approved',
             $requestId
         ]);
@@ -218,6 +270,28 @@ if ($method === 'PUT' && preg_match('/\/leave_requests\/(\d+)\/approve/', $uri, 
             12 - $request['total_days']
         ]);
         
+        // Get employee info for notification
+        $empStmt = $db->prepare("
+            SELECT e.user_id, lt.leave_name, lr.start_date, lr.end_date
+            FROM leave_requests lr
+            JOIN employees e ON lr.employee_id = e.employee_id
+            JOIN leave_types lt ON lr.leave_type_id = lt.leave_type_id
+            WHERE lr.leave_request_id = ?
+        ");
+        $empStmt->execute([$requestId]);
+        $leaveInfo = $empStmt->fetch();
+        
+        // Notify employee about approval
+        if ($leaveInfo && $leaveInfo['user_id']) {
+            $notificationHelper->notifyLeaveRequestStatus(
+                $leaveInfo['user_id'],
+                'approved',
+                $leaveInfo['leave_name'],
+                $leaveInfo['start_date'],
+                $leaveInfo['end_date']
+            );
+        }
+        
         $db->commit();
         
         Response::success(['leave_request_id' => $requestId], 'Leave request approved successfully');
@@ -244,12 +318,34 @@ if ($method === 'PUT' && preg_match('/\/leave_requests\/(\d+)\/reject/', $uri, $
         ");
         
         $stmt->execute([
-            $user->user_id,
+            $user['user_id'],
             $data['review_notes'] ?? 'Rejected',
             $requestId
         ]);
         
         if ($stmt->rowCount() > 0) {
+            // Get employee info for notification
+            $empStmt = $db->prepare("
+                SELECT e.user_id, lt.leave_name, lr.start_date, lr.end_date
+                FROM leave_requests lr
+                JOIN employees e ON lr.employee_id = e.employee_id
+                JOIN leave_types lt ON lr.leave_type_id = lt.leave_type_id
+                WHERE lr.leave_request_id = ?
+            ");
+            $empStmt->execute([$requestId]);
+            $leaveInfo = $empStmt->fetch();
+            
+            // Notify employee about rejection
+            if ($leaveInfo && $leaveInfo['user_id']) {
+                $notificationHelper->notifyLeaveRequestStatus(
+                    $leaveInfo['user_id'],
+                    'rejected',
+                    $leaveInfo['leave_name'],
+                    $leaveInfo['start_date'],
+                    $leaveInfo['end_date']
+                );
+            }
+            
             Response::success(['leave_request_id' => $requestId], 'Leave request rejected');
         } else {
             Response::error('Request not found or already processed');
@@ -276,9 +372,9 @@ if ($method === 'PUT' && preg_match('/\/leave_requests\/(\d+)\/cancel/', $uri, $
         $params = [$requestId];
         
         // Employees can only cancel their own requests
-        if ($user->role === 'employee') {
+        if ($user['role'] === 'employee') {
             $query .= " AND e.user_id = ?";
-            $params[] = $user->user_id;
+            $params[] = $user['user_id'];
         }
         
         $stmt = $db->prepare($query);

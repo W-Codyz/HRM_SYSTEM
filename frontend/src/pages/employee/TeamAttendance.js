@@ -10,11 +10,19 @@ const TeamAttendance = () => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedAttendance, setSelectedAttendance] = useState(null);
   const [formData, setFormData] = useState({
     employee_id: '',
     check_in_time: '08:00',
     check_out_time: '',
     status: 'present'
+  });
+  const [editFormData, setEditFormData] = useState({
+    check_in: '',
+    check_out: '',
+    status: 'present',
+    notes: ''
   });
   const [stats, setStats] = useState({
     present: 0,
@@ -24,20 +32,27 @@ const TeamAttendance = () => {
   });
 
   useEffect(() => {
-    fetchAttendanceData();
-  }, [selectedDate]);
+    if (user && user.employee_id) {
+      fetchAttendanceData();
+    }
+  }, [selectedDate, user]);
 
   const fetchAttendanceData = async () => {
+    if (!user || !user.employee_id) {
+      return;
+    }
+    
     try {
       setLoading(true);
       
       // Lấy thông tin phòng ban
       const deptRes = await api.get('/departments');
       const departments = deptRes.data.data || [];
-      const myDept = departments.find(d => d.manager_id === user?.employee_id);
+      
+      const myDept = departments.find(d => d.manager_id === user.employee_id);
       
       if (!myDept) {
-        toast.error('Bạn không quản lý phòng ban nào');
+        setManagedDepartment(null);
         setLoading(false);
         return;
       }
@@ -79,7 +94,9 @@ const TeamAttendance = () => {
       // Tính stats
       const present = departmentAttendance.filter(a => a.status === 'present').length;
       const late = departmentAttendance.filter(a => a.status === 'late').length;
-      const absent = employees.length - departmentAttendance.length;
+      const onLeave = departmentAttendance.filter(a => a.status === 'leave' || a.status === 'on_leave').length;
+      const hasAttendance = departmentAttendance.length;
+      const absent = employees.length - hasAttendance;
       
       setStats({
         present,
@@ -124,6 +141,62 @@ const TeamAttendance = () => {
     });
   };
 
+  const handleEdit = (emp) => {
+    if (!emp.attendance) {
+      toast.error('Nhân viên chưa có dữ liệu chấm công');
+      return;
+    }
+    setSelectedAttendance(emp.attendance);
+    setEditFormData({
+      check_in: emp.attendance.check_in || '',
+      check_out: emp.attendance.check_out || '',
+      status: emp.attendance.status || 'present',
+      notes: emp.attendance.notes || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // Calculate actual hours and overtime
+      let actualHours = 0;
+      let overtimeHours = 0;
+      let lateMinutes = 0;
+      
+      if (editFormData.check_in && editFormData.check_out) {
+        const checkIn = new Date(`2000-01-01T${editFormData.check_in}`);
+        const checkOut = new Date(`2000-01-01T${editFormData.check_out}`);
+        actualHours = (checkOut - checkIn) / (1000 * 60 * 60);
+        overtimeHours = Math.max(0, actualHours - 8);
+      }
+      
+      if (editFormData.check_in) {
+        const checkIn = new Date(`2000-01-01T${editFormData.check_in}`);
+        const standardStart = new Date(`2000-01-01T08:00:00`);
+        const diffMinutes = (checkIn - standardStart) / (1000 * 60);
+        lateMinutes = Math.max(0, Math.floor(diffMinutes));
+      }
+      
+      await api.put(`/attendance/${selectedAttendance.attendance_id}`, {
+        check_in: editFormData.check_in,
+        check_out: editFormData.check_out,
+        actual_hours: actualHours,
+        overtime_hours: overtimeHours,
+        late_minutes: lateMinutes,
+        status: editFormData.status,
+        notes: editFormData.notes
+      });
+      
+      toast.success('Cập nhật chấm công thành công!');
+      setShowEditModal(false);
+      setSelectedAttendance(null);
+      fetchAttendanceData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Cập nhật thất bại');
+    }
+  };
+
   const handleManualCheckIn = async (e) => {
     e.preventDefault();
     try {
@@ -156,7 +229,22 @@ const TeamAttendance = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="spinner border-purple-600 border-t-transparent w-12 h-12"></div>
+        <div className="text-center">
+          <div className="spinner border-purple-600 border-t-transparent w-12 h-12 mx-auto mb-4"></div>
+          <p className="text-gray-600">Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !user.employee_id) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Đang tải thông tin người dùng</h2>
+          <p className="text-gray-600">Vui lòng đợi...</p>
+        </div>
       </div>
     );
   }
@@ -167,7 +255,13 @@ const TeamAttendance = () => {
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <div className="text-6xl mb-4">❌</div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Không có quyền truy cập</h2>
-          <p className="text-gray-600">Bạn không quản lý phòng ban nào</p>
+          <p className="text-gray-600 mb-4">Bạn không quản lý phòng ban nào</p>
+          <div className="text-sm text-gray-500 mt-4">
+            <p>Thông tin tài khoản:</p>
+            <p>ID nhân viên: {user.employee_id}</p>
+            <p>Tên: {user.full_name}</p>
+            <p>Vai trò: {user.role}</p>
+          </div>
         </div>
       </div>
     );
@@ -296,6 +390,9 @@ const TeamAttendance = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Ghi chú
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Thao tác
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -325,13 +422,23 @@ const TeamAttendance = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatTime(att?.check_in_time)}</div>
+                        <div className="text-sm text-gray-900">{formatTime(att?.check_in)}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatTime(att?.check_out_time)}</div>
+                        <div className="text-sm text-gray-900">{formatTime(att?.check_out)}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-gray-600">{att?.notes || '-'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {att && (
+                          <button
+                            onClick={() => handleEdit(emp)}
+                            className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                          >
+                            ✏️ Sửa
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -418,6 +525,87 @@ const TeamAttendance = () => {
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
                 >
                   Lưu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal chỉnh sửa chấm công */}
+      {showEditModal && selectedAttendance && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold mb-4">Chỉnh sửa chấm công</h3>
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Nhân viên:</strong> {attendanceData.find(e => e.attendance?.attendance_id === selectedAttendance.attendance_id)?.full_name}
+              </p>
+              <p className="text-sm text-blue-800">
+                <strong>Ngày:</strong> {selectedDate}
+              </p>
+            </div>
+            <form onSubmit={handleEditSubmit}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Giờ vào</label>
+                  <input
+                    type="time"
+                    value={editFormData.check_in}
+                    onChange={(e) => setEditFormData({ ...editFormData, check_in: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-purple-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Giờ ra</label>
+                  <input
+                    type="time"
+                    value={editFormData.check_out}
+                    onChange={(e) => setEditFormData({ ...editFormData, check_out: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Trạng thái</label>
+                  <select
+                    value={editFormData.status}
+                    onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="present">Có mặt</option>
+                    <option value="late">Đi muộn</option>
+                    <option value="absent">Vắng mặt</option>
+                    <option value="leave">Nghỉ phép</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Ghi chú</label>
+                  <textarea
+                    value={editFormData.notes}
+                    onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-purple-500"
+                    rows="3"
+                    placeholder="Ghi chú về chỉnh sửa..."
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => { 
+                    setShowEditModal(false); 
+                    setSelectedAttendance(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  Cập nhật
                 </button>
               </div>
             </form>

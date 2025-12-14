@@ -9,12 +9,20 @@ const Attendance = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const [formData, setFormData] = useState({
     employee_id: '',
     attendance_date: new Date().toISOString().split('T')[0],
     check_in_time: '08:00',
     check_out_time: '17:00',
     status: 'present',
+  });
+  const [editFormData, setEditFormData] = useState({
+    check_in: '',
+    check_out: '',
+    status: 'present',
+    notes: ''
   });
 
   useEffect(() => {
@@ -84,6 +92,57 @@ const Attendance = () => {
       } catch (error) {
         toast.error('Xóa chấm công thất bại');
       }
+    }
+  };
+
+  const handleEdit = (record) => {
+    setSelectedRecord(record);
+    setEditFormData({
+      check_in: record.check_in || '',
+      check_out: record.check_out || '',
+      status: record.status || 'present',
+      notes: record.notes || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      let actualHours = 0;
+      let overtimeHours = 0;
+      let lateMinutes = 0;
+      
+      if (editFormData.check_in && editFormData.check_out) {
+        const checkIn = new Date(`2000-01-01T${editFormData.check_in}`);
+        const checkOut = new Date(`2000-01-01T${editFormData.check_out}`);
+        actualHours = (checkOut - checkIn) / (1000 * 60 * 60);
+        overtimeHours = Math.max(0, actualHours - 8);
+      }
+      
+      if (editFormData.check_in) {
+        const checkIn = new Date(`2000-01-01T${editFormData.check_in}`);
+        const standardStart = new Date(`2000-01-01T08:00:00`);
+        const diffMinutes = (checkIn - standardStart) / (1000 * 60);
+        lateMinutes = Math.max(0, Math.floor(diffMinutes));
+      }
+      
+      await api.put(`/attendance/${selectedRecord.attendance_id}`, {
+        check_in: editFormData.check_in,
+        check_out: editFormData.check_out,
+        actual_hours: actualHours,
+        overtime_hours: overtimeHours,
+        late_minutes: lateMinutes,
+        status: editFormData.status,
+        notes: editFormData.notes
+      });
+      
+      toast.success('Cập nhật chấm công thành công!');
+      setShowEditModal(false);
+      setSelectedRecord(null);
+      fetchAttendance();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Cập nhật thất bại');
     }
   };
 
@@ -272,6 +331,24 @@ const Attendance = () => {
                           : 'Nửa ngày'}
                       </span>
                     </td>
+                    <td>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleEdit(record)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Chỉnh sửa"
+                        >
+                          <FaEdit />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(record.attendance_id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Xóa"
+                        >
+                          <FaTrash />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -347,6 +424,113 @@ const Attendance = () => {
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
                     Lưu
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Attendance Modal */}
+        {showEditModal && selectedRecord && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md">
+              <h3 className="text-xl font-bold mb-4 text-gray-800">Chỉnh sửa chấm công</h3>
+              
+              {/* Attendance Info Display */}
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm mb-1">
+                  <strong className="text-gray-700">Mã NV:</strong>{' '}
+                  <span className="text-blue-600">{selectedRecord.employee_code}</span>
+                </p>
+                <p className="text-sm mb-1">
+                  <strong className="text-gray-700">Nhân viên:</strong>{' '}
+                  <span className="text-gray-900">{selectedRecord.full_name}</span>
+                </p>
+                <p className="text-sm">
+                  <strong className="text-gray-700">Ngày:</strong>{' '}
+                  <span className="text-gray-900">{selectedRecord.attendance_date}</span>
+                </p>
+              </div>
+
+              <form onSubmit={handleEditSubmit} className="space-y-4">
+                {/* Check In Time */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Giờ vào <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={editFormData.check_in}
+                    onChange={(e) => setEditFormData({ ...editFormData, check_in: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                {/* Check Out Time */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Giờ ra <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={editFormData.check_out}
+                    onChange={(e) => setEditFormData({ ...editFormData, check_out: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Trạng thái <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editFormData.status}
+                    onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="present">Có mặt</option>
+                    <option value="late">Đi muộn</option>
+                    <option value="absent">Vắng mặt</option>
+                  </select>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Ghi chú
+                  </label>
+                  <textarea
+                    value={editFormData.notes}
+                    onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows="3"
+                    placeholder="Nhập ghi chú (nếu có)..."
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setSelectedRecord(null);
+                      setEditFormData({ check_in: '', check_out: '', status: 'present', notes: '' });
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 font-medium transition-all shadow-sm hover:shadow-md"
+                  >
+                    Cập nhật
                   </button>
                 </div>
               </form>

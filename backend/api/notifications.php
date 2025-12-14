@@ -28,7 +28,7 @@ if ($method === 'GET' && strpos($uri, '/unread-count') !== false) {
         FROM notifications
         WHERE user_id = ? AND is_read = 0
     ");
-    $stmt->execute([$user->user_id]);
+    $stmt->execute([$user['user_id']]);
     $count = $stmt->fetch()['count'];
     
     Response::success(['count' => (int)$count]);
@@ -47,7 +47,7 @@ if ($method === 'GET' && strpos($uri, '/unread-count') === false) {
         ORDER BY created_at DESC
         LIMIT ?
     ");
-    $stmt->execute([$user->user_id, (int)$limit]);
+    $stmt->execute([$user['user_id'], (int)$limit]);
     $notifications = $stmt->fetchAll();
     
     Response::success($notifications);
@@ -69,7 +69,7 @@ if ($method === 'PUT' && strpos($uri, '/read') !== false) {
         SET is_read = 1 
         WHERE notification_id = ? AND user_id = ?
     ");
-    $stmt->execute([$notificationId, $user->user_id]);
+    $stmt->execute([$notificationId, $user['user_id']]);
     
     Response::success(null, 'Notification marked as read');
 }
@@ -83,7 +83,7 @@ if ($method === 'PUT' && strpos($uri, '/mark-all-read') !== false) {
         SET is_read = 1 
         WHERE user_id = ? AND is_read = 0
     ");
-    $stmt->execute([$user->user_id]);
+    $stmt->execute([$user['user_id']]);
     
     Response::success(null, 'All notifications marked as read');
 }

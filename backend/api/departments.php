@@ -104,6 +104,9 @@ if ($method === 'POST') {
         // Convert empty string to null for manager_id
         $managerId = !empty($data['manager_id']) ? $data['manager_id'] : null;
         
+        // Begin transaction
+        $db->beginTransaction();
+        
         $stmt = $db->prepare("
             INSERT INTO departments (department_name, department_code, manager_id, description)
             VALUES (?, ?, ?, ?)
@@ -116,11 +119,27 @@ if ($method === 'POST') {
             $data['description'] ?? null
         ]);
         
+        $departmentId = $db->lastInsertId();
+        
+        // If manager is assigned, update their role to manager
+        if ($managerId) {
+            $stmt = $db->prepare("
+                UPDATE users u
+                INNER JOIN employees e ON u.user_id = e.user_id
+                SET u.role = 'manager'
+                WHERE e.employee_id = ?
+            ");
+            $stmt->execute([$managerId]);
+        }
+        
+        $db->commit();
+        
         Response::created([
-            'department_id' => $db->lastInsertId()
+            'department_id' => $departmentId
         ], 'Department created successfully');
         
     } catch (PDOException $e) {
+        $db->rollBack();
         error_log('Database error: ' . $e->getMessage());
         Response::error('Failed to create department: ' . $e->getMessage());
     }
@@ -132,9 +151,19 @@ if ($method === 'PUT' && preg_match('/\/departments\/(\d+)/', $uri, $matches)) {
     $deptId = $matches[1];
     
     try {
-        // Convert empty string to null for manager_id
-        $managerId = !empty($data['manager_id']) ? $data['manager_id'] : null;
+        // Get current manager_id before update
+        $stmt = $db->prepare("SELECT manager_id FROM departments WHERE department_id = ?");
+        $stmt->execute([$deptId]);
+        $currentDept = $stmt->fetch();
+        $oldManagerId = $currentDept['manager_id'];
         
+        // Convert empty string to null for manager_id
+        $newManagerId = !empty($data['manager_id']) ? $data['manager_id'] : null;
+        
+        // Begin transaction
+        $db->beginTransaction();
+        
+        // Update department
         $stmt = $db->prepare("
             UPDATE departments SET
                 department_name = ?,
@@ -145,18 +174,48 @@ if ($method === 'PUT' && preg_match('/\/departments\/(\d+)/', $uri, $matches)) {
         
         $stmt->execute([
             $data['department_name'],
-            $managerId,
+            $newManagerId,
             $data['description'] ?? null,
             $deptId
         ]);
         
-        if ($stmt->rowCount() > 0 || true) {
-            Response::success(['department_id' => $deptId], 'Department updated successfully');
-        } else {
-            Response::error('Department not found');
+        // Update user roles
+        // 1. If old manager exists and is different from new manager, set old manager back to employee
+        if ($oldManagerId && $oldManagerId != $newManagerId) {
+            // Check if old manager still manages any other department
+            $stmt = $db->prepare("SELECT COUNT(*) as count FROM departments WHERE manager_id = ? AND department_id != ?");
+            $stmt->execute([$oldManagerId, $deptId]);
+            $result = $stmt->fetch();
+            
+            // Only demote to employee if not managing any other department
+            if ($result['count'] == 0) {
+                $stmt = $db->prepare("
+                    UPDATE users u
+                    INNER JOIN employees e ON u.user_id = e.user_id
+                    SET u.role = 'employee'
+                    WHERE e.employee_id = ?
+                ");
+                $stmt->execute([$oldManagerId]);
+            }
         }
         
+        // 2. If new manager exists, set new manager role to manager
+        if ($newManagerId) {
+            $stmt = $db->prepare("
+                UPDATE users u
+                INNER JOIN employees e ON u.user_id = e.user_id
+                SET u.role = 'manager'
+                WHERE e.employee_id = ?
+            ");
+            $stmt->execute([$newManagerId]);
+        }
+        
+        $db->commit();
+        
+        Response::success(['department_id' => $deptId], 'Department updated successfully');
+        
     } catch (PDOException $e) {
+        $db->rollBack();
         Response::error('Failed to update department: ' . $e->getMessage());
     }
 }

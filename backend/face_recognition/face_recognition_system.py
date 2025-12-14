@@ -16,7 +16,9 @@ from database import Database
 class FaceRecognitionSystem:
     def __init__(self):
         self.db = Database()
-        self.db.connect()
+        connection = self.db.connect()
+        if not connection:
+            raise Exception("Không thể kết nối đến cơ sở dữ liệu. Vui lòng kiểm tra:\n1. MySQL đã chạy chưa?\n2. Cổng database trong config.py có đúng không?\n3. Thông tin đăng nhập database có chính xác không?")
         self.last_recognition = {}  # Track last recognition time per employee
         
     def __del__(self):
@@ -280,7 +282,7 @@ class FaceRecognitionSystem:
                 if attendance_id:
                     result['success'] = True
                     result['action'] = 'check_in'
-                    result['message'] = f"✓ Chấm công VÀO thành công!\nNhân viên: {employee['full_name']}\nMã NV: {employee_code}\nĐộ tin cậy: {confidence*100:.1f}%"
+                    result['message'] = f"Chấm công VÀO thành công!\nNhân viên: {employee['full_name']}\nMã NV: {employee_code}\nĐộ tin cậy: {confidence*100:.1f}%"
                     result['attendance'] = {'attendance_id': attendance_id}
                     
                     # Update last recognition time
@@ -304,7 +306,7 @@ class FaceRecognitionSystem:
                         (attendance_id,)
                     )
                     
-                    result['message'] = f"✓ Chấm công RA thành công!\nNhân viên: {employee['full_name']}\nGiờ làm: {updated_attendance.get('actual_hours', 0):.1f}h"
+                    result['message'] = f"Chấm công RA thành công!\nNhân viên: {employee['full_name']}\nGiờ làm: {updated_attendance.get('actual_hours', 0):.1f}h"
                     result['attendance'] = {
                         'attendance_id': attendance_id,
                         'actual_hours': float(updated_attendance.get('actual_hours', 0))

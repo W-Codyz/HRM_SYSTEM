@@ -38,10 +38,17 @@ const TeamManagement = () => {
   });
 
   useEffect(() => {
-    fetchTeamData();
-  }, []);
+    if (user && user.employee_id) {
+      fetchTeamData();
+    }
+  }, [user]);
 
   const fetchTeamData = async () => {
+    if (!user || !user.employee_id) {
+      console.log('User not ready yet');
+      return;
+    }
+    
     try {
       setLoading(true);
       
@@ -52,10 +59,11 @@ const TeamManagement = () => {
       ]);
       
       const departments = deptRes.data.data || [];
-      const myDept = departments.find(d => d.manager_id === user?.employee_id);
+      const myDept = departments.find(d => d.manager_id === user.employee_id);
       
       if (!myDept) {
-        toast.error('Bạn không quản lý phòng ban nào');
+        console.log('No department found for employee_id:', user.employee_id);
+        setManagedDepartment(null);
         setLoading(false);
         return;
       }
@@ -245,7 +253,22 @@ const TeamManagement = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="spinner border-purple-600 border-t-transparent w-12 h-12"></div>
+        <div className="text-center">
+          <div className="spinner border-purple-600 border-t-transparent w-12 h-12 mx-auto mb-4"></div>
+          <p className="text-gray-600">Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !user.employee_id) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Đang tải thông tin người dùng</h2>
+          <p className="text-gray-600">Vui lòng đợi...</p>
+        </div>
       </div>
     );
   }

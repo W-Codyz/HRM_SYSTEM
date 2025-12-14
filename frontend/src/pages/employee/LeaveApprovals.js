@@ -12,41 +12,39 @@ const LeaveApprovals = () => {
   const [filter, setFilter] = useState('all'); // pending, approved, rejected, all
 
   useEffect(() => {
-    fetchLeaveRequests();
-  }, []);
+    if (user && user.employee_id) {
+      fetchLeaveRequests();
+    }
+  }, [user]);
 
   const fetchLeaveRequests = async () => {
+    if (!user || !user.employee_id) {
+      console.log('User not ready yet');
+      return;
+    }
+    
     try {
       setLoading(true);
       
       // Lấy thông tin phòng ban
       const deptRes = await api.get('/departments');
       const departments = deptRes.data.data || [];
-      const myDept = departments.find(d => d.manager_id === user?.employee_id);
+      const myDept = departments.find(d => d.manager_id === user.employee_id);
       
       if (!myDept) {
-        toast.error('Bạn không quản lý phòng ban nào');
+        console.log('No department found for employee_id:', user.employee_id);
+        setManagedDepartment(null);
         setLoading(false);
         return;
       }
       
       setManagedDepartment(myDept);
       
-      // Lấy danh sách nhân viên trong phòng ban
-      const empRes = await api.get('/employees', { 
-        params: { department_id: myDept.department_id } 
+      // Lấy tất cả leave requests của phòng ban (gửi department_id để backend lọc)
+      const leavesRes = await api.get('/leave_requests', {
+        params: { department_id: myDept.department_id }
       });
-      const employees = empRes.data.data || [];
-      const employeeIds = employees.map(e => e.employee_id);
-      
-      // Lấy tất cả leave requests (không filter theo status)
-      const leavesRes = await api.get('/leave_requests');
-      const allLeaves = leavesRes.data.data || [];
-      
-      // Lọc chỉ lấy của nhân viên trong phòng ban
-      const departmentLeaves = allLeaves.filter(leave => 
-        employeeIds.includes(leave.employee_id)
-      );
+      const departmentLeaves = leavesRes.data.data || [];
       
       setAllLeaveRequests(departmentLeaves);
       setLoading(false);
@@ -93,7 +91,22 @@ const LeaveApprovals = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="spinner border-purple-600 border-t-transparent w-12 h-12"></div>
+        <div className="text-center">
+          <div className="spinner border-purple-600 border-t-transparent w-12 h-12 mx-auto mb-4"></div>
+          <p className="text-gray-600">Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !user.employee_id) {
+    return (
+      <div className="p-6">
+        <div className="card text-center py-12">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Đang tải thông tin người dùng</h2>
+          <p className="text-gray-600">Vui lòng đợi...</p>
+        </div>
       </div>
     );
   }

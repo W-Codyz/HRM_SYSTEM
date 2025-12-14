@@ -7,12 +7,10 @@ import { toast } from 'react-toastify';
 const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     username: '',
-    email: '',
     password: '',
   });
 
@@ -27,41 +25,23 @@ const Login = () => {
       e.stopPropagation();
     }
     
-    console.log('Form submitted:', { isLogin, username: formData.username });
-    
     setLoading(true);
     setError(''); // Clear previous errors
 
     try {
-      if (isLogin) {
-        const user = await login({
-          username: formData.username,
-          password: formData.password,
-        });
-        
-        toast.success('Đăng nhập thành công!');
-        
-        // Redirect based on role
-        if (user.role === 'admin') {
-          navigate('/admin/dashboard');
-        } else {
-          // Employee và Manager đều vào employee portal
-          navigate('/employee/dashboard');
-        }
+      const user = await login({
+        username: formData.username,
+        password: formData.password,
+      });
+      
+      toast.success('Đăng nhập thành công!');
+      
+      // Redirect based on role
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
       } else {
-        // Register
-        try {
-          await api.post('/auth/register', {
-            username: formData.username,
-            email: formData.email,
-            password: formData.password,
-          });
-        toast.success('Đăng ký thành công! Vui lòng đợi quản trị viên phê duyệt.');
-          setFormData({ username: '', email: '', password: '' });
-          setIsLogin(true); // Switch to login tab
-        } catch (registerError) {
-          throw registerError;
-        }
+        // Employee và Manager đều vào employee portal
+        navigate('/employee/dashboard');
       }
     } catch (error) {
       console.error('Login/Register error:', error.response?.data);
@@ -99,37 +79,11 @@ const Login = () => {
           </p>
         </div>
 
-        {/* Login/Register Form */}
+        {/* Login Form */}
         <div className="bg-white rounded-2xl shadow-lg p-8">
-          <div className="flex mb-6">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(true);
-                setError('');
-              }}
-              className={`flex-1 py-2 text-center font-semibold transition-all ${
-                isLogin
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 border-b-2 border-transparent hover:text-blue-600'
-              }`}
-            >
-              Đăng nhập
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(false);
-                setError('');
-              }}
-              className={`flex-1 py-2 text-center font-semibold transition-all ${
-                !isLogin
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 border-b-2 border-transparent hover:text-blue-600'
-              }`}
-            >
-              Đăng ký
-            </button>
+          <div className="mb-6">
+            <h3 className="text-2xl font-bold text-gray-800 text-center">Đăng nhập</h3>
+            <p className="text-gray-600 text-center mt-2">Vui lòng đăng nhập để tiếp tục</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -169,27 +123,6 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Email (Register only) */}
-            {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">📧</span>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="w-full border border-gray-300 rounded-lg px-10 py-2"
-                    placeholder="Nhập địa chỉ email"
-                    required={!isLogin}
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -204,21 +137,19 @@ const Login = () => {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg px-10 py-2"
                   placeholder="Nhập mật khẩu"
-                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  autoComplete="current-password"
                   required
                 />
               </div>
             </div>
 
-            {/* Remember & Forgot */}
-            {isLogin && (
-              <div className="flex items-center justify-between">
-                <label className="flex items-center">
-                  <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                  <span className="ml-2 text-sm text-gray-600">Ghi nhớ đăng nhập</span>
-                </label>
-              </div>
-            )}
+            {/* Remember */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center">
+                <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span className="ml-2 text-sm text-gray-600">Ghi nhớ đăng nhập</span>
+              </label>
+            </div>
 
             {/* Submit Button */}
             <button
@@ -232,19 +163,10 @@ const Login = () => {
                   Đang xử lý...
                 </div>
               ) : (
-                isLogin ? 'Đăng nhập' : 'Đăng ký'
+                'Đăng nhập'
               )}
             </button>
           </form>
-
-          {/* Info */}
-          {!isLogin && (
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>Lưu ý:</strong> Sau khi đăng ký, tài khoản của bạn cần được quản trị viên phê duyệt trước khi có thể đăng nhập.
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Footer */}

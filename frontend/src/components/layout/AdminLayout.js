@@ -191,13 +191,13 @@ const AdminLayout = ({ children }) => {
                     <FaUser className="text-gray-600 mr-3" />
                     <span className="text-gray-800">Thông tin cá nhân</span>
                   </Link>
-                  <Link
+                  {/* <Link
                     to="/admin/settings"
                     className="flex items-center px-4 py-3 hover:bg-gray-50 transition-colors"
                   >
                     <FaCog className="text-gray-600 mr-3" />
                     <span className="text-gray-800">Cài đặt</span>
-                  </Link>
+                  </Link> */}
                   <hr className="my-2 border-gray-200" />
                   <button
                     onClick={handleLogout}

@@ -8,6 +8,7 @@ const ManagerLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [employeePhoto, setEmployeePhoto] = useState(null);
+  const [photoTimestamp, setPhotoTimestamp] = useState(Date.now());
 
   useEffect(() => {
     const fetchEmployeePhoto = async () => {
@@ -25,6 +26,13 @@ const ManagerLayout = () => {
     };
     fetchEmployeePhoto();
   }, [user]);
+  
+  // Refresh photo when returning from profile page
+  useEffect(() => {
+    if (location.pathname !== '/manager/profile') {
+      setPhotoTimestamp(Date.now());
+    }
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -75,7 +83,8 @@ const ManagerLayout = () => {
             <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold overflow-hidden">
               {employeePhoto ? (
                 <img 
-                  src={`http://localhost/Nhom9/backend/face_recognition/employee_photos/${employeePhoto}`}
+                  key={photoTimestamp}
+                  src={`http://localhost/Nhom9/backend/face_recognition/employee_photos/${employeePhoto}?v=${photoTimestamp}`}
                   alt={user?.username}
                   className="w-full h-full object-cover"
                 />

@@ -10,10 +10,12 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../helpers/Response.php';
 require_once __DIR__ . '/../helpers/Validator.php';
+require_once __DIR__ . '/../helpers/NotificationHelper.php';
 require_once __DIR__ . '/../middleware/auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$notificationHelper = new NotificationHelper($db);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = $_SERVER['REQUEST_URI'];
@@ -44,9 +46,9 @@ if ($method === 'GET' && !preg_match('/\/payroll\.php\/\d+/', $uri)) {
     $params = [];
     
     // Employees and Managers can only see their own payroll
-    if ($user->role === 'employee' || $user->role === 'manager') {
+    if ($user['role'] === 'employee' || $user['role'] === 'manager') {
         $query .= " AND p.employee_id = ?";
-        $params[] = $user->employee_id;
+        $params[] = $user['employee_id'];
     }
     
     // Filter by employee
@@ -101,7 +103,7 @@ if ($method === 'GET' && preg_match('/\/payroll\.php\/(\d+)/', $uri, $matches)) 
     }
     
     // Check permission
-    if ($user->role === 'employee' && $payroll['employee_id'] != $user->employee_id) {
+    if ($user['role'] === 'employee' && $payroll['employee_id'] != $user['employee_id']) {
         Response::forbidden('You can only view your own payroll');
     }
     
@@ -273,6 +275,11 @@ if ($method === 'POST' && strpos($uri, '/calculate')) {
         
         $db->commit();
         
+        // Notify all employees that payroll is ready
+        if (!$employeeId && count($calculated) > 0) {
+            $notificationHelper->notifyAllEmployeesPayrollGenerated($month, $year);
+        }
+        
         Response::created($calculated, 'Payroll calculated for ' . count($calculated) . ' employee(s)');
         
     } catch (PDOException $e) {
@@ -404,10 +411,26 @@ if ($method === 'PUT' && preg_match('/\/payroll\.php\/(\d+)/', $uri, $matches) &
         $stmt->execute($params);
         
         if ($stmt->rowCount() > 0 || true) { // Always return success even if no changes
-            // Get updated record
-            $stmt = $db->prepare("SELECT * FROM payroll WHERE payroll_id = ?");
+            // Get updated record with employee info
+            $stmt = $db->prepare("
+                SELECT p.*, e.user_id, e.full_name
+                FROM payroll p
+                JOIN employees e ON p.employee_id = e.employee_id
+                WHERE p.payroll_id = ?
+            ");
             $stmt->execute([$payrollId]);
             $updated = $stmt->fetch();
+            
+            // Notify employee about payroll revision
+            if ($updated && $updated['user_id']) {
+                $notificationHelper->notifyPayroll(
+                    $updated['user_id'],
+                    $updated['payroll_month'],
+                    $updated['payroll_year'],
+                    $updated['net_salary'],
+                    'revised'
+                );
+            }
             
             Response::success($updated, 'Cập nhật lương thành công');
         } else {
@@ -434,7 +457,7 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/approve/', $uri, $
             Response::notFound('Không tìm thấy bảng lương');
         }
         
-        if ($payroll['employee_id'] != $user->employee_id && $user->role !== 'admin') {
+        if ($payroll['employee_id'] != $user['employee_id'] && $user['role'] !== 'admin') {
             Response::forbidden('Bạn chỉ có thể duyệt bảng lương của mình');
         }
         
@@ -445,6 +468,36 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/approve/', $uri, $
         // Update status to approved
         $stmt = $db->prepare("UPDATE payroll SET status = 'approved', approved_at = NOW() WHERE payroll_id = ?");
         $stmt->execute([$payrollId]);
+        
+        // Get employee info for notification to admin
+        $empStmt = $db->prepare("
+            SELECT e.full_name, p.payroll_month, p.payroll_year, p.net_salary
+            FROM payroll p
+            JOIN employees e ON p.employee_id = e.employee_id
+            WHERE p.payroll_id = ?
+        ");
+        $empStmt->execute([$payrollId]);
+        $payrollInfo = $empStmt->fetch();
+        
+        // Notify admins that employee approved payroll
+        if ($payrollInfo) {
+            $message = $payrollInfo['full_name'] . ' đã xác nhận lương tháng ' . $payrollInfo['payroll_month'] . '/' . $payrollInfo['payroll_year'];
+            $link = '/admin/payroll';
+            
+            // Get all admin users
+            $adminStmt = $db->prepare("SELECT user_id FROM users WHERE role = 'admin'");
+            $adminStmt->execute();
+            $admins = $adminStmt->fetchAll();
+            
+            foreach ($admins as $admin) {
+                $notificationHelper->createNotification(
+                    $admin['user_id'],
+                    'payroll_approved',
+                    $message,
+                    $link
+                );
+            }
+        }
         
         Response::success(null, 'Đã duyệt bảng lương');
         
@@ -468,7 +521,7 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/reject/', $uri, $m
             Response::notFound('Không tìm thấy bảng lương');
         }
         
-        if ($payroll['employee_id'] != $user->employee_id && $user->role !== 'admin') {
+        if ($payroll['employee_id'] != $user['employee_id'] && $user['role'] !== 'admin') {
             Response::forbidden('Bạn chỉ có thể yêu cầu xem lại bảng lương của mình');
         }
         
@@ -482,6 +535,25 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/reject/', $uri, $m
         $stmt = $db->prepare("UPDATE payroll SET status = 'need_review', notes = ? WHERE payroll_id = ?");
         $stmt->execute([$notes, $payrollId]);
         
+        // Get employee info for notification
+        $empStmt = $db->prepare("
+            SELECT e.full_name, p.payroll_month, p.payroll_year
+            FROM payroll p
+            JOIN employees e ON p.employee_id = e.employee_id
+            WHERE p.payroll_id = ?
+        ");
+        $empStmt->execute([$payrollId]);
+        $payrollInfo = $empStmt->fetch();
+        
+        // Notify admins
+        if ($payrollInfo) {
+            $notificationHelper->notifyPayrollNeedReview(
+                $payrollInfo['full_name'],
+                $payrollInfo['payroll_month'],
+                $payrollInfo['payroll_year']
+            );
+        }
+        
         Response::success(null, 'Đã gửi yêu cầu xem lại bảng lương');
         
     } catch (PDOException $e) {
@@ -494,7 +566,7 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/pay/', $uri, $matc
     error_log("Pay endpoint matched! URI: $uri, Method: $method");
     $user = AuthMiddleware::checkRole(['admin']);
     $payrollId = $matches[1];
-    error_log("Payroll ID: $payrollId, User role: " . $user->role);
+    error_log("Payroll ID: $payrollId, User role: " . $user['role']);
     
     try {
         // First check current status
@@ -518,6 +590,27 @@ if ($method === 'POST' && preg_match('/\/payroll\.php\/(\d+)\/pay/', $uri, $matc
             WHERE payroll_id = ?
         ");
         $stmt->execute([$payrollId]);
+        
+        // Get employee info for notification
+        $empStmt = $db->prepare("
+            SELECT e.user_id, p.payroll_month, p.payroll_year, p.net_salary
+            FROM payroll p
+            JOIN employees e ON p.employee_id = e.employee_id
+            WHERE p.payroll_id = ?
+        ");
+        $empStmt->execute([$payrollId]);
+        $payrollInfo = $empStmt->fetch();
+        
+        // Notify employee
+        if ($payrollInfo && $payrollInfo['user_id']) {
+            $notificationHelper->notifyPayroll(
+                $payrollInfo['user_id'],
+                $payrollInfo['payroll_month'],
+                $payrollInfo['payroll_year'],
+                $payrollInfo['net_salary'],
+                'paid'
+            );
+        }
         
         error_log("Payment updated successfully");
         Response::success(null, 'Đã đánh dấu đã trả lương');

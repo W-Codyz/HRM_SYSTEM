@@ -17,6 +17,7 @@ const EmployeeProfile = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [hasPhoto, setHasPhoto] = useState(false);
+  const [photoVersion, setPhotoVersion] = useState(Date.now()); // Cache busting key
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -68,6 +69,16 @@ const EmployeeProfile = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Check if employee data is loaded
+    if (!employeeData || !employeeData.employee_code) {
+      toast.error('Đang tải thông tin nhân viên, vui lòng thử lại sau');
+      console.error('Employee data not loaded yet:', employeeData);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
     // Validate file type
     if (!file.type.startsWith('image/')) {
       toast.error('Vui lòng chọn file ảnh');
@@ -94,6 +105,10 @@ const EmployeeProfile = () => {
   const uploadPhoto = async (file) => {
     try {
       setUploadingPhoto(true);
+      
+      console.log('Uploading photo for employee:', employeeData);
+      console.log('Employee code:', employeeData?.employee_code);
+      
       const formData = new FormData();
       formData.append('photo', file);
       formData.append('employee_code', employeeData.employee_code);
@@ -105,12 +120,15 @@ const EmployeeProfile = () => {
       if (response.data.success) {
         toast.success('Upload ảnh thành công! Bạn có thể sử dụng nhận diện khuôn mặt để chấm công.');
         setHasPhoto(true);
+        setPhotoVersion(Date.now()); // Update photo version to force reload
         fetchEmployeeProfile();
       } else {
         toast.error(response.data.message);
       }
     } catch (error) {
       console.error('Error uploading photo:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       toast.error(error.response?.data?.message || 'Lỗi upload ảnh');
     } finally {
       setUploadingPhoto(false);
@@ -168,7 +186,8 @@ const EmployeeProfile = () => {
                 <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
               ) : employeeData.face_photo ? (
                 <img 
-                  src={`http://localhost/Nhom9/backend/face_recognition/employee_photos/${employeeData.face_photo}`} 
+                  key={photoVersion}
+                  src={`http://localhost/Nhom9/backend/face_recognition/employee_photos/${employeeData.face_photo}?v=${photoVersion}`} 
                   alt={employeeData.full_name}
                   className="w-full h-full object-cover" 
                 />
