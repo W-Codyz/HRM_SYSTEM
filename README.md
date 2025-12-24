@@ -280,7 +280,12 @@ private $password = "";  // Mật khẩu MySQL (mặc định rỗng trên XAMPP
 cd C:\xampp\htdocs\Nhom9\backend\face_recognition
 
 # Tạo virtual environment (khuyến nghị)
-python -m venv venv
+Remove-Item -Recurse -Force venv
+
+py -3.11 -m venv venv
+
+# 4. Activate the new environment
+.\venv\Scripts\Activate
 
 # Kích hoạt virtual environment
 # Windows:
